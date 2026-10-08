@@ -1,8 +1,6 @@
 import { MigrationInterface, QueryRunner } from 'typeorm';
 
-export class CreateWageringAndLedger1791399591333
-  implements MigrationInterface
-{
+export class CreateWageringAndLedger1791399591333 implements MigrationInterface {
   name = 'CreateWageringAndLedger1791399591333';
 
   public async up(queryRunner: QueryRunner): Promise<void> {

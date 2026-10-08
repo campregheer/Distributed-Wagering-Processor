@@ -8,6 +8,6 @@ import { WalletLedgerEntryEntity } from './infrastructure/persistence/wallet-led
 @Module({
   imports: [TypeOrmModule.forFeature([WalletEntity, WalletLedgerEntryEntity])],
   controllers: [WalletController],
-  providers: [WalletService]
+  providers: [WalletService],
 })
 export class WalletModule {}

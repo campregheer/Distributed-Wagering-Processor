@@ -10,5 +10,20 @@ services:
       - "5432:5432"
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U jungle_user -d jungle_db"]
+      interval: 2s
+      timeout: 2s
+      retries: 20
+  localstack:
+    image: localstack/localstack:4
+    environment:
+      SERVICES: sqs
+      AWS_DEFAULT_REGION: us-east-1
+      SQS_ENDPOINT_STRATEGY: path
+    ports:
+      - "4566:4566"
+    volumes:
+      - ./docker/init-sqs.sh:/etc/localstack/init/ready.d/init-sqs.sh:ro
 volumes:
   postgres_data:

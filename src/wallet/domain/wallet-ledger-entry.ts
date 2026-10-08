@@ -32,10 +32,7 @@ export class WalletLedgerEntry {
       throw new Error('O valor do lançamento deve ser maior que zero.');
     }
 
-    if (
-      props.balanceBefore.isNegative() ||
-      props.balanceAfter.isNegative()
-    ) {
+    if (props.balanceBefore.isNegative() || props.balanceAfter.isNegative()) {
       throw new Error('O saldo da carteira não pode ser negativo.');
     }
 
@@ -79,6 +76,8 @@ export class WalletLedgerEntry {
       return this.balanceBefore.subtract(this.money).equals(this.balanceAfter);
     }
 
-    throw new Error(`Direção de lançamento inválida: ${this.direction}`);
+    throw new Error(
+      `Direção de lançamento inválida: ${String(this.direction)}`,
+    );
   }
 }

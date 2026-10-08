@@ -1,6 +1,7 @@
 import Decimal from 'decimal.js';
 
-export interface MoneyProps { // Propriedades do valor monetário
+export interface MoneyProps {
+  // Propriedades do valor monetário
   amount: string;
   currency: string;
 }
@@ -15,6 +16,7 @@ export class MoneyDomainError extends Error {
 // Limite escolhido para manter as operações dentro de uma precisão controlada.
 const MoneyDecimal = Decimal.clone({ precision: 40 });
 const MAX_ABSOLUTE_VALUE = new MoneyDecimal('1000000000000000000');
+const SUPPORTED_CURRENCIES = new Set(Intl.supportedValuesOf('currency'));
 
 export class Money {
   private constructor(
@@ -39,26 +41,29 @@ export class Money {
       );
     }
 
-    if (typeof currency !== 'string' || !/^[A-Z]{3}$/.test(currency)) {
-      throw new MoneyDomainError('A moeda deve ter três letras maiúsculas.');
+    if (
+      typeof currency !== 'string' ||
+      !/^[A-Z]{3}$/.test(currency) ||
+      !SUPPORTED_CURRENCIES.has(currency)
+    ) {
+      throw new MoneyDomainError(
+        'A moeda deve ser um código ISO-4217 suportado, com três letras maiúsculas.',
+      );
     }
 
     return new Money(new MoneyDecimal(amount), currency);
   }
-
 
   // Método para criar o zero na moeda especifica
   static zero(currency: string): Money {
     return Money.from({ amount: '0.00', currency });
   }
 
-
   add(other: Money): Money {
     this.assertSameCurrency(other);
     return new Money(this.value.plus(other.value), this.currency);
   }
 
-  
   subtract(other: Money): Money {
     this.assertSameCurrency(other);
     return new Money(this.value.minus(other.value), this.currency);

@@ -5,9 +5,13 @@ import { WalletModule } from './wallet/wallet.module';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { TypeOrmModule } from '@nestjs/typeorm';
 import { WageringModule } from './wagering/wagering.module';
+import { MessagingModule } from './messaging/messaging.module';
+import { APP_FILTER } from '@nestjs/core';
+import { ApiExceptionFilter } from './observability/api-exception.filter';
 
 @Module({
-  imports: [ConfigModule.forRoot({ isGlobal: true }),
+  imports: [
+    ConfigModule.forRoot({ isGlobal: true }),
     TypeOrmModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -23,10 +27,14 @@ import { WageringModule } from './wagering/wagering.module';
       }),
     }),
     WalletModule,
-    WageringModule
-],
-  
+    WageringModule,
+    MessagingModule,
+  ],
+
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    { provide: APP_FILTER, useClass: ApiExceptionFilter },
+  ],
 })
 export class AppModule {}

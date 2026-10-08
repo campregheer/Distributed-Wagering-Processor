@@ -1,4 +1,4 @@
 export enum LedgerDirection {
-Credit = "CREDIT",
-Debit = "DEBIT",
+  Credit = 'CREDIT',
+  Debit = 'DEBIT',
 }

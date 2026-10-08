@@ -6,5 +6,11 @@
   },
   "env": {
     "node": true
-  }
+  },
+  "overrides": [
+    {
+      "files": ["**/*.spec.ts", "test/**/*.ts"],
+      "rules": { "typescript/await-thenable": "off" }
+    }
+  ]
 }

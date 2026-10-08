@@ -8,6 +8,10 @@ import { CreateWageringAndLedger1791399591333 } from './migrations/1791399591333
 import { WalletLedgerEntryEntity } from '../wallet/infrastructure/persistence/wallet-ledger-entry.entity';
 import { WagerTransactionEntity } from '../wagering/infrastructure/persistence/wager-transaction.entity';
 import { AddWagerResultBalance1791399700000 } from './migrations/1791399700000-AddWagerResultBalance';
+import { CreateInboxOutbox1791400000000 } from './migrations/1791400000000-CreateInboxOutbox';
+import { InboxMessageEntity } from '../messaging/infrastructure/inbox-message.entity';
+import { OutboxMessageEntity } from '../messaging/infrastructure/outbox-message.entity';
+import { AddProcessingState1791400100000 } from './migrations/1791400100000-AddProcessingState';
 
 function requiredEnv(name: string): string {
   const value = process.env[name];
@@ -32,7 +36,19 @@ export const AppDataSource = new DataSource({
   username: requiredEnv('DB_USER'),
   password: requiredEnv('DB_PASSWORD'),
   database: requiredEnv('DB_NAME'),
-  entities: [WalletEntity, WalletLedgerEntryEntity, WagerTransactionEntity],
-  migrations: [CreateWallets1791394200000, CreateWageringAndLedger1791399591333, AddWagerResultBalance1791399700000],
+  entities: [
+    WalletEntity,
+    WalletLedgerEntryEntity,
+    WagerTransactionEntity,
+    InboxMessageEntity,
+    OutboxMessageEntity,
+  ],
+  migrations: [
+    CreateWallets1791394200000,
+    CreateWageringAndLedger1791399591333,
+    AddWagerResultBalance1791399700000,
+    CreateInboxOutbox1791400000000,
+    AddProcessingState1791400100000,
+  ],
   synchronize: false,
 });
