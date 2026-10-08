@@ -1,10 +1,12 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { assertWalletLedger } from './assert-wallet-ledger';
+import { afterEach, afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { AppDataSource } from '../src/database/data-source';
 import { WageringService } from '../src/wagering/wagering.service';
 import { WalletService } from '../src/wallet/wallet.service';
 import type { SubmitTransactionDto } from '../src/wagering/dto/submit-transaction.dto';
+import { metrics } from '../src/observability/metrics';
 import { startWorker } from './process-helper';
 
 describe('Processamento financeiro em PostgreSQL real', () => {
@@ -17,6 +19,9 @@ describe('Processamento financeiro em PostgreSQL real', () => {
       throw new Error('Banco de teste isolado obrigatório.');
     await AppDataSource.initialize();
     await AppDataSource.runMigrations();
+  });
+  afterEach(async () => {
+    if (AppDataSource.isInitialized) await assertWalletLedger(AppDataSource);
   });
   afterAll(async () => {
     if (AppDataSource.isInitialized) await AppDataSource.destroy();
@@ -402,5 +407,78 @@ describe('Processamento financeiro em PostgreSQL real', () => {
       );
       await AppDataSource.query('DROP FUNCTION fail_test_outbox()');
     }
+  });
+  it('processa REFUND com UUIDs equivalentes em maiúsculas', async () => {
+    const { body } = await fixture();
+    await wagering.submitTransaction(body, body.externalTransactionId);
+    const refund = {
+      ...body,
+      kind: 'REFUND',
+      externalTransactionId: randomUUID(),
+      referenceExternalTransactionId: body.externalTransactionId,
+      playerId: body.playerId.toUpperCase(),
+      walletId: body.walletId.toUpperCase(),
+    };
+    expect(
+      await wagering.submitTransaction(refund, refund.externalTransactionId),
+    ).toMatchObject({
+      status: 'PROCESSED',
+      balance: { amount: '100.00', currency: 'BRL' },
+    });
+  });
+  it('falha no commit de referência não altera saldo nem incrementa métrica de processamento', async () => {
+    const { body } = await fixture();
+    const refund = {
+      ...body,
+      kind: 'REFUND',
+      externalTransactionId: randomUUID(),
+      referenceExternalTransactionId: body.externalTransactionId,
+    };
+    const pending = await wagering.submitTransaction(
+      refund,
+      refund.externalTransactionId,
+    );
+    await wagering.submitTransaction(body, body.externalTransactionId);
+    const statusCount = () =>
+      Number(
+        metrics
+          .render()
+          .match(/wager_transactions_total\{status="PROCESSED"\} (\d+)/)?.[1] ??
+          0,
+      );
+    const before = statusCount();
+    await AppDataSource.query(`CREATE FUNCTION fail_test_commit() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN
+      IF NEW.id = '${pending.transactionId}'::uuid THEN RAISE EXCEPTION 'test deferred commit failure'; END IF; RETURN NEW; END $$`);
+    await AppDataSource.query(`CREATE CONSTRAINT TRIGGER fail_test_commit AFTER UPDATE ON wager_transactions
+      DEFERRABLE INITIALLY DEFERRED FOR EACH ROW EXECUTE FUNCTION fail_test_commit()`);
+    try {
+      await expect(
+        wagering.reprocessReference(
+          pending.transactionId,
+          new Date(Date.now() + 5000),
+        ),
+      ).rejects.toThrow('test deferred commit failure');
+      expect(statusCount()).toBe(before);
+      expect(
+        String((await wagering.findById(pending.transactionId)).status),
+      ).toBe('PENDING_REFERENCE');
+      expect((await wallets.findById(body.walletId)).balance.amount).toBe(
+        '75.00',
+      );
+      expect(await countLedger(body.walletId, 'CREDIT')).toBe(1);
+    } finally {
+      await AppDataSource.query(
+        'DROP TRIGGER fail_test_commit ON wager_transactions',
+      );
+      await AppDataSource.query('DROP FUNCTION fail_test_commit()');
+    }
+    await wagering.reprocessReference(
+      pending.transactionId,
+      new Date(Date.now() + 5000),
+    );
+    expect(statusCount()).toBe(before + 1);
+    expect((await wallets.findById(body.walletId)).balance.amount).toBe(
+      '100.00',
+    );
   });
 });

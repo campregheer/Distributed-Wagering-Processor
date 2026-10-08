@@ -81,6 +81,9 @@ export class MessagingWorker
     try {
       const envelope = JSON.parse(message.Body);
       if (
+        envelope === null ||
+        typeof envelope !== 'object' ||
+        Array.isArray(envelope) ||
         envelope.type !== 'WagerTransactionRequested' ||
         typeof envelope.messageId !== 'string' ||
         !envelope.messageId.trim() ||
@@ -88,7 +91,8 @@ export class MessagingWorker
         typeof envelope.occurredAt !== 'string' ||
         !Number.isFinite(Date.parse(envelope.occurredAt)) ||
         typeof envelope.data !== 'object' ||
-        !envelope.data
+        !envelope.data ||
+        Array.isArray(envelope.data)
       ) {
         throw new HttpException('Envelope inválido.', 400);
       }
@@ -229,5 +233,6 @@ export class MessagingWorker
       `SELECT COALESCE(EXTRACT(EPOCH FROM (now() - MIN(occurred_at))), 0)::float AS seconds FROM outbox_messages WHERE published_at IS NULL`,
     );
     metrics.set('wager_outbox_lag_seconds', Math.max(0, Number(lag.seconds)));
+    metrics.set('wager_dlq_messages', await this.sqs.depth(DLQ));
   }
 }

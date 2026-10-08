@@ -543,7 +543,8 @@ export class WageringService {
       .getRepository(WagerTransactionEntity)
       .findOneBy({ id });
     if (!candidate) return;
-    await this.dataSource.transaction(async (manager) => {
+    const startedAt = Date.now();
+    const outcome = await this.dataSource.transaction(async (manager) => {
       const wallet = await manager.findOne(WalletEntity, {
         where: { id: candidate.walletId },
         lock: { mode: 'pessimistic_write' },
@@ -574,8 +575,7 @@ export class WageringService {
             now.getTime() + Math.min(1000 * 2 ** attempts, 300000),
           ),
         });
-        metrics.increment('wager_retries_total');
-        return;
+        return { retry: true, status: undefined };
       }
       const result = await this.process(
         manager,
@@ -590,8 +590,21 @@ export class WageringService {
             ? FailureCode.REFERENCE_NOT_PROCESSED
             : undefined,
       );
-      metrics.increment('wager_transactions_total', result.status);
+      return { retry: false, status: result.status };
     });
+    if (outcome?.retry) metrics.increment('wager_retries_total');
+    else if (outcome?.status) {
+      metrics.increment('wager_transactions_total', outcome.status);
+      metrics.observeLatency(Date.now() - startedAt);
+      this.logger.log({
+        event: 'ReferenceReprocessed',
+        transactionId: id,
+        walletId: candidate.walletId,
+        providerId: candidate.providerId,
+        correlationId: candidate.correlationId ?? id,
+        status: outcome.status,
+      });
+    }
   }
 
   async findByExternalId(

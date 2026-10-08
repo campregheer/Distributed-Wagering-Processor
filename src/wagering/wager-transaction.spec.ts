@@ -3,27 +3,29 @@ import {
   WagerTransaction,
   WagerTransactionKind as Kind,
   FailureCode,
+  InvalidTransactionStateError,
   WagerTransactionStatus as Status,
 } from './wager-transaction';
 import { Money } from '../wallet/domain/money';
 import { LedgerDirection } from '../wallet/domain/ledger-direction';
 
 describe('WagerTransaction: regras de domínio', () => {
+  const props = {
+    id: 'transaction',
+    providerId: 'provider',
+    externalTransactionId: 'external',
+    idempotencyKey: 'key',
+    payloadHash: 'hash',
+    walletId: 'wallet',
+    playerId: 'player',
+    roundId: 'round',
+    gameId: 'game',
+    kind: Kind.Bet,
+    money: Money.from({ amount: '25.00', currency: 'BRL' }),
+    createdAt: new Date(),
+  };
   const create = (kind: Kind, referenceExternalTransactionId?: string) =>
-    WagerTransaction.create({
-      id: 'transaction',
-      providerId: 'provider',
-      externalTransactionId: 'external',
-      idempotencyKey: 'key',
-      payloadHash: 'hash',
-      walletId: 'wallet',
-      playerId: 'player',
-      roundId: 'round',
-      gameId: 'game',
-      kind,
-      money: Money.from({ amount: '25.00', currency: 'BRL' }),
-      referenceExternalTransactionId,
-    });
+    WagerTransaction.create({ ...props, kind, referenceExternalTransactionId });
   it.each([Kind.Refund, Kind.Rollback])('exige referência para %s', (kind) => {
     expect(() => create(kind)).toThrow();
   });
@@ -70,13 +72,96 @@ describe('WagerTransaction: regras de domínio', () => {
         transaction.reject(FailureCode.INSUFFICIENT_FUNDS);
       if (status === Status.Failed)
         transaction.fail(FailureCode.PERMANENT_INFRASTRUCTURE_FAILURE);
-      expect(() => transaction.markProcessed(undefined, new Date())).toThrow();
+      expect(() => transaction.markPendingReference()).toThrow(
+        InvalidTransactionStateError,
+      );
+      expect(() => transaction.markProcessed(undefined, new Date())).toThrow(
+        InvalidTransactionStateError,
+      );
       expect(() =>
         transaction.reject(FailureCode.INSUFFICIENT_FUNDS),
       ).toThrow();
       expect(() =>
         transaction.fail(FailureCode.PERMANENT_INFRASTRUCTURE_FAILURE),
       ).toThrow();
+    },
+  );
+  it('compara UUIDs equivalentes sem distinguir maiúsculas', () => {
+    const state = {
+      ...props,
+      money: Money.from({ amount: '25.00', currency: 'BRL' }),
+      walletId: '0192f291-27dd-7d3f-8071-5f8685deef37',
+      playerId: '0192f28f-5dc0-7d58-bdb2-814ad6a0f4a1',
+      kind: Kind.Bet,
+      referenceExternalTransactionId: undefined,
+    };
+    const bet = WagerTransaction.create(state);
+    bet.markProcessed(undefined, new Date());
+    const refund = WagerTransaction.create({
+      ...state,
+      kind: Kind.Refund,
+      referenceExternalTransactionId: 'external',
+      walletId: state.walletId.toUpperCase(),
+      playerId: state.playerId.toUpperCase(),
+    });
+    expect(refund.referenceFailureCode(bet)).toBeUndefined();
+  });
+  it.each(['providerId', 'playerId', 'walletId', 'roundId'] as const)(
+    'rejeita referência com contexto divergente em %s',
+    (field) => {
+      const ref = create(Kind.Bet);
+      ref.markProcessed(undefined, new Date());
+      const other = WagerTransaction.rehydrate({
+        ...props,
+        money: ref.money,
+        status: Status.Processed,
+        [field]: 'other',
+      });
+      expect(create(Kind.Refund, 'external').referenceFailureCode(other)).toBe(
+        FailureCode.REFERENCE_MISMATCH,
+      );
+    },
+  );
+  it('rejeita referência com moeda divergente', () => {
+    const other = WagerTransaction.rehydrate({
+      ...props,
+      status: Status.Processed,
+      money: Money.from({ amount: '25.00', currency: 'USD' }),
+    });
+    expect(create(Kind.Refund, 'external').referenceFailureCode(other)).toBe(
+      FailureCode.REFERENCE_MISMATCH,
+    );
+  });
+  it('rejeita reversão parcial', () => {
+    const other = WagerTransaction.rehydrate({
+      ...props,
+      status: Status.Processed,
+      money: Money.from({ amount: '30.00', currency: 'BRL' }),
+    });
+    expect(create(Kind.Refund, 'external').referenceFailureCode(other)).toBe(
+      FailureCode.REVERSAL_AMOUNT_MISMATCH,
+    );
+  });
+  it.each([Kind.Opening, Kind.Loss])(
+    'ROLLBACK não pode referenciar %s',
+    (kind) => {
+      const ref = create(kind);
+      ref.markProcessed(undefined, new Date());
+      expect(create(Kind.Rollback, 'external').referenceFailureCode(ref)).toBe(
+        FailureCode.INVALID_REFERENCE_KIND,
+      );
+    },
+  );
+  it.each([Status.Rejected, Status.Failed])(
+    'referência %s não pode ser revertida',
+    (status) => {
+      const ref = create(Kind.Bet);
+      if (status === Status.Rejected)
+        ref.reject(FailureCode.INSUFFICIENT_FUNDS);
+      else ref.fail(FailureCode.PERMANENT_INFRASTRUCTURE_FAILURE);
+      expect(create(Kind.Refund, 'external').referenceFailureCode(ref)).toBe(
+        FailureCode.REFERENCE_NOT_PROCESSED,
+      );
     },
   );
 });

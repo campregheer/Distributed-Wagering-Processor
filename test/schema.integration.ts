@@ -1,4 +1,5 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { assertWalletLedger } from './assert-wallet-ledger';
+import { afterEach, afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { randomUUID } from 'node:crypto';
 import { AppDataSource } from '../src/database/data-source';
 
@@ -26,8 +27,25 @@ describe('Migrations e constraints em PostgreSQL real', () => {
       FROM wallets WHERE id = $2`,
       [transactionId, walletId],
     );
+    const openingId = randomUUID();
+    await AppDataSource.query(
+      `INSERT INTO wager_transactions
+      (id, provider_id, external_transaction_id, idempotency_key, payload_hash,
+       wallet_id, player_id, round_id, game_id, kind, status, amount, currency, created_at)
+      SELECT $1, 'internal', 'opening', 'opening', 'hash', id, player_id,
+        'opening', 'opening', 'OPENING', 'PROCESSED', 100.00, 'BRL', now() FROM wallets WHERE id = $2`,
+      [openingId, walletId],
+    );
+    await AppDataSource.query(
+      `INSERT INTO wallet_ledger_entries VALUES
+      ($1, $2, $3, 'CREDIT', 100.00, 0.00, 100.00, 'BRL', now())`,
+      [randomUUID(), walletId, openingId],
+    );
   });
 
+  afterEach(async () => {
+    if (AppDataSource.isInitialized) await assertWalletLedger(AppDataSource);
+  });
   afterAll(async () => {
     if (AppDataSource.isInitialized) await AppDataSource.destroy();
   });
@@ -89,6 +107,10 @@ describe('Migrations e constraints em PostgreSQL real', () => {
       `
       INSERT INTO wallet_ledger_entries VALUES ($1, $2, $3, 'DEBIT', 25.00, 100.00, 75.00, 'BRL', now())`,
       [id, walletId, transactionId],
+    );
+    await AppDataSource.query(
+      'UPDATE wallets SET balance = 75.00, version = 2 WHERE id = $1',
+      [walletId],
     );
     await expect(
       AppDataSource.query(

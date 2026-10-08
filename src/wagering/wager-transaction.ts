@@ -152,6 +152,11 @@ export class WagerTransaction {
   }
 
   markPendingReference(): void {
+    if (this.isTerminal()) {
+      throw new InvalidTransactionStateError(
+        'Não é possível marcar uma transação terminal como PENDING_REFERENCE.',
+      );
+    }
     if (
       this._status !== WagerTransactionStatus.Pending ||
       !this.referenceExternalTransactionId
@@ -208,8 +213,8 @@ export class WagerTransaction {
   referenceFailureCode(reference: WagerTransaction): FailureCode | undefined {
     if (
       reference.providerId !== this.providerId ||
-      reference.playerId !== this.playerId ||
-      reference.walletId !== this.walletId ||
+      reference.playerId.toLowerCase() !== this.playerId.toLowerCase() ||
+      reference.walletId.toLowerCase() !== this.walletId.toLowerCase() ||
       reference.money.currency !== this.money.currency ||
       reference.roundId !== this.roundId
     ) {

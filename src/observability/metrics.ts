@@ -20,6 +20,7 @@ class Metrics {
       'wager_duplicates_total',
       'wager_retries_total',
       'wager_dlq_total',
+      'wager_dlq_messages',
       'wager_lock_conflicts_total',
       'wager_outbox_lag_seconds',
       'wager_processing_latency_count',

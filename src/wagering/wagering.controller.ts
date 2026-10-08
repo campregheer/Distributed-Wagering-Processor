@@ -29,14 +29,24 @@ export class WageringController {
     @Headers('idempotency-key') idempotencyKey: string | undefined,
     @Body() body: SubmitTransactionDto,
     @Res({ passthrough: true }) response?: Response,
+    @Headers('x-correlation-id') correlationId?: string,
   ) {
     if (!idempotencyKey?.trim()) {
       throw new BadRequestException('Idempotency-Key é obrigatório.');
     }
 
+    if (
+      correlationId !== undefined &&
+      (!correlationId.trim() || Array.from(correlationId).length > 255)
+    ) {
+      throw new BadRequestException(
+        'X-Correlation-Id deve ser não vazio e ter até 255 caracteres.',
+      );
+    }
     const result = await this.wageringService.submitTransaction(
       body,
       idempotencyKey,
+      { correlationId },
     );
     response?.status(
       result.status === 'PENDING_REFERENCE' || result.status === 'PENDING'

@@ -1,10 +1,12 @@
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { afterEach, afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { Test } from '@nestjs/testing';
 import type { INestApplication } from '@nestjs/common';
 import { Logger } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { AppModule } from '../src/app.module';
+import { DataSource } from 'typeorm';
+import { assertWalletLedger } from './assert-wallet-ledger';
 import { AppDataSource } from '../src/database/data-source';
 
 describe('HTTP completo com PostgreSQL e SQS reais', () => {
@@ -22,6 +24,9 @@ describe('HTTP completo com PostgreSQL e SQS reais', () => {
     }).compile();
     app = module.createNestApplication();
     await app.init();
+  });
+  afterEach(async () => {
+    if (app) await assertWalletLedger(app.get(DataSource));
   });
   afterAll(async () => {
     if (app) await app.close();
@@ -48,14 +53,34 @@ describe('HTTP completo com PostgreSQL e SQS reais', () => {
       money: { amount: '25.00', currency: 'BRL' },
     };
     const key = randomUUID();
+    const correlationId = `http-${randomUUID()}`;
     const result = (
       await request(app.getHttpServer())
         .post('/wagering/transactions')
         .set('Idempotency-Key', key)
+        .set('X-Correlation-Id', correlationId)
         .send(body)
         .expect(200)
     ).body;
     expect(result.balance.amount).toBe('75.00');
+    const [stored] = await app
+      .get(DataSource)
+      .query('SELECT correlation_id FROM wager_transactions WHERE id = $1', [
+        result.transactionId,
+      ]);
+    expect(stored.correlation_id).toBe(correlationId);
+    const events = await app
+      .get(DataSource)
+      .query(
+        `SELECT payload->>'correlationId' AS correlation FROM outbox_messages WHERE payload->'data'->>'transactionId' = $1`,
+        [result.transactionId],
+      );
+    expect(events).toHaveLength(2);
+    expect(
+      events.every(
+        (event: { correlation: string }) => event.correlation === correlationId,
+      ),
+    ).toBe(true);
     const replay = (
       await request(app.getHttpServer())
         .post('/wagering/transactions')

@@ -2,6 +2,8 @@ import { createInterface } from 'node:readline';
 import { createHash } from 'node:crypto';
 import { Logger } from '@nestjs/common';
 import { AppDataSource } from '../src/database/data-source';
+import { SqsGateway } from '../src/messaging/sqs.gateway';
+import { MessagingWorker } from '../src/messaging/messaging.worker';
 import { WageringService } from '../src/wagering/wagering.service';
 
 async function main() {
@@ -12,6 +14,24 @@ async function main() {
   process.stdout.write('READY\n');
   for await (const line of createInterface({ input: process.stdin })) {
     const job = JSON.parse(line);
+    if (job.crashAfterPublish) {
+      const sqs = new SqsGateway();
+      const publish = sqs.publish.bind(sqs);
+      sqs.publish = async (...args) => {
+        await publish(...args);
+        process.stdout.write(
+          `RESULT ${JSON.stringify({ eventId: (args[1] as { eventId: string }).eventId })}\n`,
+        );
+        // O pai mata este processo antes de published_at e do commit do publisher.
+        await new Promise<void>(() => {});
+      };
+      await new MessagingWorker(
+        AppDataSource,
+        sqs,
+        new WageringService(AppDataSource),
+      ).publishOnce();
+      return;
+    }
     const body = job.envelope ? job.envelope.data : job.body;
     const result = await new WageringService(AppDataSource).submitTransaction(
       body,

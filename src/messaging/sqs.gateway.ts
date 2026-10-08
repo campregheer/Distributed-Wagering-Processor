@@ -82,6 +82,25 @@ export class SqsGateway {
       }),
     );
   }
+  async depth(name: string): Promise<number> {
+    const result = await this.client.send(
+      new GetQueueAttributesCommand({
+        QueueUrl: await this.url(name),
+        AttributeNames: [
+          'ApproximateNumberOfMessages',
+          'ApproximateNumberOfMessagesNotVisible',
+          'ApproximateNumberOfMessagesDelayed',
+        ],
+      }),
+    );
+    return (
+      [
+        'ApproximateNumberOfMessages',
+        'ApproximateNumberOfMessagesNotVisible',
+        'ApproximateNumberOfMessagesDelayed',
+      ] as const
+    ).reduce((total, key) => total + Number(result.Attributes?.[key] ?? 0), 0);
+  }
   async ready(): Promise<void> {
     await this.client.send(
       new GetQueueAttributesCommand({

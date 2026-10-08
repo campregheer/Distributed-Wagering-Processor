@@ -34,6 +34,29 @@ describe('WageringController', () => {
   it('encaminha body e a chave original ao service', async () => {
     const body = { kind: 'BET' } as SubmitTransactionDto;
     await controller.submitTransaction('provider-a:tx-1', body);
-    expect(submitTransaction).toHaveBeenCalledWith(body, 'provider-a:tx-1');
+    expect(submitTransaction).toHaveBeenCalledWith(body, 'provider-a:tx-1', {
+      correlationId: undefined,
+    });
   });
+  it('propaga correlação HTTP para o caso de uso', async () => {
+    const body = { kind: 'BET' } as SubmitTransactionDto;
+    await controller.submitTransaction('key', body, undefined, 'request-123');
+    expect(submitTransaction).toHaveBeenCalledWith(body, 'key', {
+      correlationId: 'request-123',
+    });
+  });
+  it.each(['', ' ', 'x'.repeat(256)])(
+    'rejeita correlação fora do limite de persistência',
+    async (correlation) => {
+      await expect(
+        controller.submitTransaction(
+          'key',
+          {} as SubmitTransactionDto,
+          undefined,
+          correlation,
+        ),
+      ).rejects.toBeInstanceOf(BadRequestException);
+      expect(submitTransaction).not.toHaveBeenCalled();
+    },
+  );
 });
